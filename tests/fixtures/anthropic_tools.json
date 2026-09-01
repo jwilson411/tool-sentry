@@ -1,0 +1,56 @@
+[
+  {
+    "description": "Search the indexed document corpus. Returns ranked matches.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Maximum number of matches to return."
+        },
+        "order": {
+          "enum": ["relevance", "recency", "title"],
+          "description": "Sort order   for results.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Full-text query string.",
+          "type": "string"
+        }
+      },
+      "required": ["query", "limit"],
+      "type": "object"
+    },
+    "name": "search_documents"
+  },
+  {
+    "description": "Create a tracking ticket\nfor a follow-up task.",
+    "input_schema": {
+      "additionalProperties": false,
+      "required": ["title", "severity"],
+      "type": "object",
+      "properties": {
+        "assignee": {
+          "required": ["email"],
+          "type": "object",
+          "properties": {
+            "email": {
+              "description": "Contact address for the assignee.",
+              "type": "string"
+            }
+          }
+        },
+        "severity": {
+          "enum": ["low", "medium", "high"],
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "name": "create_ticket"
+  }
+]
