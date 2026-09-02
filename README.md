@@ -8,7 +8,10 @@ JSON you already have on disk, normalizes them into one internal
 representation, canonicalizes key order and description whitespace, and
 writes a deterministic lock file with a SHA-256 contract hash. Commit the
 lock file and any change to the tool surface shows up as a hash change in
-the diff.
+the diff. `diff` then classifies each change as breaking, risky, or
+informational, `check` judges those changes against a review policy you
+commit next to the lock file, and `approve` records the new contract as the
+approved baseline.
 
 **tool-sentry never executes a model or a tool. It never calls provider
 APIs.** It reads JSON files, canonicalizes them, and writes JSON. There are
@@ -59,6 +62,13 @@ tool-sentry diff BASELINE CANDIDATE [--fail-on SEVERITY] [--format FORMAT]
 ```
 
 See [Diff](#diff) below.
+
+```
+tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format FORMAT]
+tool-sentry approve --baseline PATH --candidate PATH
+```
+
+See [Policy and approval](#policy-and-approval) below.
 
 Format detection, in order:
 
@@ -283,6 +293,208 @@ keyword by keyword and applies the fixed rules above. Specifically:
 
 Nothing is executed and no model is asked. The classification of a given pair
 of files is the same on every machine and every run.
+
+## Policy and approval
+
+`diff` tells you what changed and how bad it is. `check` decides whether
+*this repository* accepts it, using a policy file you commit next to the
+lock file, and `approve` records a reviewed contract as the new baseline.
+
+```
+tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format table|json]
+tool-sentry approve --baseline PATH --candidate PATH
+```
+
+### The policy file
+
+The policy is YAML — or the same keys as JSON, which is read first if the
+file parses as JSON. tool-sentry parses a small documented YAML subset
+itself, so it still has **zero runtime dependencies**.
+
+```yaml
+version: 1
+fail_on: risky
+ignore_paths:
+  - parameters.properties.offset
+forbidden_tool_names:
+  - "eval"
+  - "shell_*"
+tools:
+  search_documents:
+    fail_on: informational
+    ignore_paths:
+      - parameters.properties.order
+```
+
+| Key | Meaning |
+| --- | --- |
+| `version` | Required. Must be `1`. Any other value is a stale policy and exits `2` rather than being half-understood. |
+| `fail_on` | Global threshold — `breaking` (default), `risky`, `informational`, or `never`, exactly as [`diff --fail-on`](#--fail-on). |
+| `ignore_paths` | Change paths to drop before the threshold is applied. |
+| `forbidden_tool_names` | Patterns that no candidate tool name may match. |
+| `tools` | Per-tool overrides, keyed by tool name; each may set `fail_on` and `ignore_paths`. |
+
+Every key except `version` is optional. An unknown top-level key, an unknown
+per-tool key, or a bad value is one error and exit `2` — a typo'd policy is
+never silently a permissive one.
+
+The supported YAML is block mappings, block sequences of scalars, `#`
+comments, quoted and unquoted scalars, and the empty collections `[]` and
+`{}`. Anchors, aliases, tags, merge keys, block scalars, and multi-document
+streams are rejected with one error rather than being partly read.
+
+### `ignore_paths`
+
+An ignore entry is matched against a change's `path` — the same dotted path
+the table and the JSON report print — as a **path prefix**, on segment
+boundaries. `parameters.properties.order` ignores itself and
+`parameters.properties.order.enum`, but not `parameters.properties.ordering`.
+Matching is exact and case-sensitive; there is no globbing here.
+
+An ignored change is removed from the report entirely and counted in
+`ignored_count`, so a change that would have failed the build becomes a
+pass. Roster-level changes — `tool.added`, `tool.removed`,
+`roster.reordered` — carry an empty path and can never be ignored.
+
+### `forbidden_tool_names`
+
+Each pattern is an `fnmatch` glob (`*`, `?`, `[seq]`) matched
+**case-sensitively** against every **candidate** tool name — the roster
+being proposed, not the baseline. `shell_*` matches `shell_exec` and not
+`Shell_exec`. A match fails the run on its own, regardless of `fail_on` and
+regardless of whether anything changed:
+
+```bash
+tool-sentry check --baseline tests/fixtures/classify/baseline.json \
+                  --candidate tests/fixtures/classify/baseline.json \
+                  --policy policy.yml   # forbidden_tool_names: ["create_*"]
+```
+
+```
+No contract changes.
+FORBIDDEN  PATTERN   NAME
+FORBIDDEN  create_*  create_ticket
+```
+
+### Per-tool overrides
+
+A tool's `fail_on` replaces the global one for changes on that tool, so one
+volatile tool can be held to `informational` while the rest of the roster
+stays at `breaking` — or one critical tool held to `risky` while the rest
+stay looser. A tool's `ignore_paths` are added to the global ones and apply
+only to changes on that tool: the same path under a different tool is still
+reported.
+
+### `check`
+
+`--baseline` and `--candidate` accept a lock file, a dialect JSON file, or a
+directory of `.json` files, as `diff` does. The baseline is additionally
+required to be a lock format this release understands; a lock written with a
+different `version` exits `2` and asks you to regenerate it. A roster that
+names the same tool twice also exits `2` — `check` and `approve` match
+rosters by name, so a repeated name has no single meaning.
+
+```bash
+tool-sentry check --baseline tests/fixtures/classify/baseline.json \
+                  --candidate tests/fixtures/classify/candidate_breaking.json \
+                  --policy policy.yml
+```
+
+```
+SEVERITY  RULE                  TOOL              PATH                              MESSAGE
+breaking  tool.removed          create_ticket                                       tool 'create_ticket' was removed
+breaking  arg.required.added    search_documents  parameters.required.limit         property 'limit' became required
+breaking  enum.narrowed         search_documents  parameters.properties.order.enum  allowed values were removed
+breaking  output.field.removed  search_documents  output.properties.total           output field 'total' was removed
+```
+
+`--format json` (or `--json`) prints a report with exactly these top-level
+keys:
+
+```json
+{
+  "baseline_hash": "sha256:...",
+  "candidate_hash": "sha256:...",
+  "counts": { "breaking": 4, "risky": 0, "informational": 0 },
+  "ignored_count": 1,
+  "forbidden": [],
+  "policy": { "fail_on": "risky", "path": "policy.yml" },
+  "changes": [
+    {
+      "severity": "breaking",
+      "rule": "enum.narrowed",
+      "tool": "search_documents",
+      "path": "parameters.properties.order.enum",
+      "message": "allowed values were removed",
+      "before": ["relevance", "recency", "title"],
+      "after": ["relevance", "recency"]
+    }
+  ]
+}
+```
+
+`changes` entries have the same keys as in the [`diff` report](#--format).
+`forbidden` entries are `{"pattern": ..., "name": ...}` — the pattern that
+matched and the candidate tool name it matched. `policy` echoes the global
+`fail_on` and the policy path the run used.
+
+`counts` and `changes` describe what survived `ignore_paths`; `ignored_count`
+is how many changes it dropped.
+
+### `approve`
+
+```bash
+tool-sentry approve --baseline tools.lock.json \
+                    --candidate tests/fixtures/classify/candidate_breaking.json
+```
+
+`approve` writes the candidate contract to `--baseline` as a lock file and
+prints its hash. **It writes that one file and nothing else** — the
+candidate is only read, no other path is touched, and nothing is staged or
+committed. Running `check` again against that baseline now passes, because
+there is nothing left to differ.
+
+An approved baseline is an ordinary lock file with one extra block:
+
+```json
+{
+  "version": 1,
+  "hash": "sha256:...",
+  "approved": { "tool_sentry": "0.3.0", "at": "2026-09-02T06:00:00Z" },
+  "tools": []
+}
+```
+
+`approved.tool_sentry` is the version that wrote it and `approved.at` is the
+UTC approval time, second precision, with a trailing `Z`. No user name, host
+name, environment, or credential is recorded — there is nothing to record,
+since tool-sentry reads only the files you name.
+
+The hash still covers **only the `tools` array**, exactly as in
+[Lock file and hash algorithm](#lock-file-and-hash-algorithm). The
+`approved` block sits outside the hashed byte string, so approving a
+contract does not change its hash: an approved baseline and a plain
+`snapshot` of the same candidate carry the same `sha256:`.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The candidate is accepted under the policy. `approve` succeeded. |
+| `1` | `check` only: a surviving change reached its threshold, or a candidate tool name is forbidden. |
+| `2` | Bad input — unreadable or invalid JSON, an unrecognized document, a stale policy or lock version, an invalid policy, or duplicate tool names. One line on stderr, prefixed `tool-sentry: error:`. |
+
+Exit `1` means "a human needs to look at this," and the report is printed
+either way, so a reviewer sees the same table CI did.
+
+### What this is not
+
+Approval is a **local, git-reviewable record**, not an authorization system.
+`approve` is a separate command you run deliberately: `check` never
+auto-approves, never rewrites the baseline, and never widens the policy.
+There is no server, no token, and no network — a policy is a file you read
+in a diff, and an approval is a file you review in a pull request. As
+everywhere else in tool-sentry, nothing is executed and no model is asked.
 
 ## Library use
 
