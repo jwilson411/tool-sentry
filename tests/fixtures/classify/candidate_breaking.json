@@ -1,0 +1,47 @@
+{
+  "tools": [
+    {
+      "name": "search_documents",
+      "description": "Search the indexed document corpus.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Full-text query string."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "order": {
+            "type": "string",
+            "enum": ["relevance", "recency"]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of leading matches to skip."
+          }
+        },
+        "required": ["query", "limit"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "name": "search_documents",
+      "description": "Search the indexed document corpus.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Full-text query string."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "order": {
+            "type": "string",
+            "enum": ["relevance", "recency", "title"]
+          }
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          },
+          "total": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a tracking ticket for a follow-up task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        },
+        "required": ["title"]
+      }
+    }
+  ]
+}

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tool-sentry"
-version = "0.1.0"
-description = "Canonical snapshots and SHA-256 contract hashes for OpenAI, Anthropic, and MCP tool schemas."
+version = "0.2.0"
+description = "Canonical snapshots, SHA-256 contract hashes, and breaking-change diffs for OpenAI, Anthropic, and MCP tool schemas."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

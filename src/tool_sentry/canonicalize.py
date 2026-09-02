@@ -58,12 +58,13 @@ def canonicalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def canonicalize_tool(tool: Tool) -> Tool:
-    """Return a copy of ``tool`` with description and schema canonicalized."""
+    """Return a copy of ``tool`` with description and schemas canonicalized."""
     return Tool(
         name=tool.name,
         description=collapse_whitespace(tool.description),
         parameters=canonicalize_schema(tool.parameters),
         source=tool.source,
+        output=None if tool.output is None else canonicalize_schema(tool.output),
     )
 
 
