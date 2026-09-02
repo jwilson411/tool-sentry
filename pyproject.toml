@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tool-sentry"
-version = "0.3.0"
-description = "Canonical snapshots, SHA-256 contract hashes, breaking-change diffs, and a local review policy for OpenAI, Anthropic, and MCP tool schemas."
+version = "0.4.0"
+description = "Canonical snapshots, SHA-256 contract hashes, breaking-change diffs, a local review policy, and SARIF output plus a GitHub Action for OpenAI, Anthropic, and MCP tool schemas."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Justin Wilson" }]
-keywords = ["tools", "json-schema", "openai", "anthropic", "mcp", "snapshot"]
+keywords = ["tools", "json-schema", "openai", "anthropic", "mcp", "snapshot", "sarif"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",

@@ -11,11 +11,15 @@ lock file and any change to the tool surface shows up as a hash change in
 the diff. `diff` then classifies each change as breaking, risky, or
 informational, `check` judges those changes against a review policy you
 commit next to the lock file, and `approve` records the new contract as the
-approved baseline.
+approved baseline. Any of those reports can be written as a SARIF 2.1.0 log
+with `--format sarif`, and the [reusable GitHub Action](#github-action)
+bundled in this repository runs the whole check on a pull request and
+annotates the candidate file inline.
 
 **tool-sentry never executes a model or a tool. It never calls provider
 APIs.** It reads JSON files, canonicalizes them, and writes JSON. There are
-no provider SDKs, no MCP transport, and no runtime dependencies.
+no provider SDKs, no MCP transport, and no runtime dependencies. The Action
+needs no API key and no GitHub token.
 
 ## 60-second local example
 
@@ -58,13 +62,13 @@ tool-sentry snapshot INPUT [--out PATH]
   valid JSON, tool-sentry writes an error to stderr and exits `2`.
 
 ```
-tool-sentry diff BASELINE CANDIDATE [--fail-on SEVERITY] [--format FORMAT]
+tool-sentry diff BASELINE CANDIDATE [--fail-on SEVERITY] [--format table|json|sarif]
 ```
 
 See [Diff](#diff) below.
 
 ```
-tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format FORMAT]
+tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format table|json|sarif]
 tool-sentry approve --baseline PATH --candidate PATH
 ```
 
@@ -158,7 +162,7 @@ A hash change tells you the contract moved. `diff` tells you whether that
 matters.
 
 ```
-tool-sentry diff BASELINE CANDIDATE [--fail-on SEVERITY] [--format FORMAT]
+tool-sentry diff BASELINE CANDIDATE [--fail-on SEVERITY] [--format table|json|sarif]
 ```
 
 `BASELINE` and `CANDIDATE` are each a lock file, a dialect JSON file, or a
@@ -237,6 +241,64 @@ prints a report with exactly these top-level keys:
 `baseline_hash` and `candidate_hash` are the same contract hashes `snapshot`
 prints.
 
+`--format sarif` prints a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/)
+log instead, so a contract diff can be uploaded to a code scanning service,
+kept as a build artifact, or opened in any SARIF viewer:
+
+```json
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": { "name": "tool-sentry", "version": "0.4.0", "rules": [] }
+      },
+      "results": [
+        {
+          "ruleId": "enum.narrowed",
+          "level": "error",
+          "message": { "text": "allowed values were removed" },
+          "logicalLocations": [
+            {
+              "name": "enum",
+              "fullyQualifiedName": "search_documents.parameters.properties.order.enum"
+            }
+          ],
+          "properties": {
+            "severity": "breaking",
+            "tool": "search_documents",
+            "path": "parameters.properties.order.enum"
+          }
+        }
+      ],
+      "properties": { "baselineHash": "sha256:...", "candidateHash": "sha256:..." }
+    }
+  ]
+}
+```
+
+There is exactly one run. The classifier rule id is the SARIF `ruleId`, and
+`runs[0].tool.driver.rules` lists every rule id present in that run, each
+with its default level and a link to the [rule table](#rules). The tool name
+and the dotted change path are carried twice on purpose: as
+`logicalLocations[0].fullyQualifiedName` for viewers that navigate by
+location, and as `properties.tool` / `properties.path` for consumers that
+read the raw JSON. A change that belongs to the roster rather than to one
+tool, such as `roster.reordered`, is located at `contract`.
+
+Severity becomes the SARIF `level`:
+
+| Severity | SARIF `level` |
+| --- | --- |
+| `breaking` | `error` |
+| `risky` | `warning` |
+| `informational` | `note` |
+
+SARIF is a renderer, not a mode: `--fail-on` and the exit codes behave
+exactly as they do for `table` and `json`. A clean diff is a valid log with
+an empty `results` array.
+
 ### Rules
 
 | Rule | Severity | Fires when |
@@ -301,7 +363,7 @@ of files is the same on every machine and every run.
 lock file, and `approve` records a reviewed contract as the new baseline.
 
 ```
-tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format table|json]
+tool-sentry check --baseline PATH --candidate PATH --policy PATH [--format table|json|sarif]
 tool-sentry approve --baseline PATH --candidate PATH
 ```
 
@@ -441,6 +503,12 @@ matched and the candidate tool name it matched. `policy` echoes the global
 `counts` and `changes` describe what survived `ignore_paths`; `ignored_count`
 is how many changes it dropped.
 
+`--format sarif` prints the surviving changes as the same
+[SARIF 2.1.0 log](#--format) `diff` writes, so an ignored path is absent
+from the log as well as from the report. A forbidden tool name is a policy
+verdict rather than a contract change: it still fails the run and it is
+still listed by `table` and `json`, but it has no SARIF result.
+
 ### `approve`
 
 ```bash
@@ -496,6 +564,84 @@ There is no server, no token, and no network — a policy is a file you read
 in a diff, and an approval is a file you review in a pull request. As
 everywhere else in tool-sentry, nothing is executed and no model is asked.
 
+## GitHub Action
+
+The repository root is a composite action, so a pull request can be checked
+against a committed baseline with nothing but a checkout:
+
+```yaml
+name: tool-sentry
+on: [pull_request]
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jwilson411/tool-sentry@main
+        with:
+          baseline: tools.lock.json
+          candidate: tools.json
+```
+
+`baseline` is the lock file you commit and review; `candidate` is the tool
+document the branch proposes. Both accept a lock file, a dialect JSON file,
+or a directory of `.json` files, exactly as the CLI does. The step exits `1`
+when the diff reaches the threshold, so the job fails the way any other
+check does.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `baseline` | required | Approved baseline contract. |
+| `candidate` | required | Candidate contract the branch proposes. |
+| `fail-on` | `breaking` | Severity that fails the run, as [`diff --fail-on`](#--fail-on). Ignored when `policy` is set. |
+| `format` | `sarif` | What gets printed to the job log: `sarif`, `table`, or `json`. The SARIF file is written either way. |
+| `policy` | none | Policy file. When set, [`check`](#check) runs instead of `diff` and the policy supplies the threshold. |
+| `output` | `tool-sentry.sarif` | Path the SARIF 2.1.0 log is written to. |
+| `python-version` | `3.12` | Python used to run tool-sentry. |
+
+Outputs are `sarif-file` (the path written) and `exit-code` (the tool-sentry
+exit code, before the step fails on it).
+
+The action pins `actions/setup-python@v5` and installs tool-sentry from
+`$GITHUB_ACTION_PATH`, the checked-out action itself, so there is no PyPI
+dependency and the action always runs the code it ships with. **It needs no
+API key, no provider credential, and no `GITHUB_TOKEN`**: it reads two files
+and writes one. It never posts a pull request comment, never calls a
+provider API, and never executes a model or a tool. The SARIF log is left on
+disk for whatever the workflow wants to do with it, such as an artifact
+upload, under the workflow's own permissions rather than the action's.
+
+### Expected output
+
+`examples/sarif/` holds a baseline and a candidate that fail on purpose. Run
+the same two steps the action runs:
+
+```bash
+tool-sentry diff examples/sarif/baseline.json examples/sarif/candidate.json \
+                 --format sarif > tool-sentry.sarif
+python -m tool_sentry.sarif tool-sentry.sarif --file examples/sarif/candidate.json
+```
+
+The second command prints one GitHub workflow command per change, which the
+runner renders as an inline annotation on the candidate file:
+
+```
+::error file=examples/sarif/candidate.json,title=arg.removed (breaking)::create_ticket.parameters.properties.title: property 'title' was removed
+::error file=examples/sarif/candidate.json,title=arg.required.added (breaking)::create_ticket.parameters.properties.summary: required property 'summary' was added
+::error file=examples/sarif/candidate.json,title=tool.removed (breaking)::export_report: tool 'export_report' was removed
+::error file=examples/sarif/candidate.json,title=arg.required.added (breaking)::search_documents.parameters.required.limit: property 'limit' became required
+::error file=examples/sarif/candidate.json,title=enum.narrowed (breaking)::search_documents.parameters.properties.order.enum: allowed values were removed
+::error file=examples/sarif/candidate.json,title=output.field.removed (breaking)::search_documents.output.properties.total: output field 'total' was removed
+::warning file=examples/sarif/candidate.json,title=enum.widened (risky)::create_ticket.parameters.properties.severity.enum: allowed values were added
+::notice file=examples/sarif/candidate.json,title=arg.optional.added (informational)::search_documents.parameters.properties.offset: optional property 'offset' was added
+```
+
+Five distinct breaking rules in one candidate: a dropped tool, a removed
+argument, an argument that became required, a narrowed enum, and a removed
+output field. `::error` and `::warning` and `::notice` are the workflow
+commands for the three severities, in the same order the table and the JSON
+report use.
+
 ## Library use
 
 ```python
@@ -506,6 +652,16 @@ snapshot = build_snapshot(tools)
 print(snapshot["hash"])
 ```
 
+The SARIF renderer lives in its own module, so that
+`python -m tool_sentry.sarif` runs as a script:
+
+```python
+from tool_sentry import classify
+from tool_sentry.sarif import render_sarif
+
+print(render_sarif(classify(baseline, candidate), tool_version="0.4.0"))
+```
+
 ## Development
 
 ```bash
@@ -514,8 +670,11 @@ make test
 ```
 
 Python 3.11+. Zero runtime dependencies; `pytest` is the only dev
-dependency. CI runs checkout, setup-python 3.12, install, and pytest — no
-secrets and no tokens.
+dependency. CI runs checkout, setup-python 3.12, install, and pytest, then
+snapshots the committed sample contract and diffs the lock back against the
+document it came from, which must come out clean. A second job runs the
+bundled action on `examples/sarif/` to prove it works end to end. No
+secrets and no tokens anywhere.
 
 ## License
 

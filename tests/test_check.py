@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from conftest import FIXTURES
 
+from tool_sentry import __version__
 from tool_sentry.cli import main
 
 CLASSIFY = FIXTURES / "classify"
@@ -306,7 +307,7 @@ def test_approval_round_trip(tmp_path, monkeypatch, capsys):
     text = lock.read_text(encoding="utf-8")
     written = json.loads(text)
     assert list(written) == ["version", "hash", "approved", "tools"]
-    assert written["approved"] == {"tool_sentry": "0.3.0", "at": FROZEN_AT}
+    assert written["approved"] == {"tool_sentry": __version__, "at": FROZEN_AT}
     assert written["hash"] == approved_hash
 
     # The approval block is outside the hashed bytes: the hash is still the
