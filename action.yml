@@ -1,0 +1,102 @@
+name: "tool-sentry"
+description: >-
+  Check a committed tool contract baseline against a candidate tool document.
+  Emits SARIF 2.1.0 and inline annotations. No API keys, no token, no network.
+author: "Justin Wilson"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  baseline:
+    description: "Approved baseline: a lock file, a dialect JSON file, or a directory of JSON files."
+    required: true
+  candidate:
+    description: "Candidate contract: a lock file, a dialect JSON file, or a directory of JSON files."
+    required: true
+  fail-on:
+    description: "Severity that fails the run: breaking, risky, informational, or never. Ignored when 'policy' is set."
+    required: false
+    default: "breaking"
+  format:
+    description: "Format printed to the job log: sarif, table, or json. The SARIF file is written either way."
+    required: false
+    default: "sarif"
+  policy:
+    description: "Optional policy file. When set, 'tool-sentry check' runs instead of 'tool-sentry diff' and the policy supplies the threshold."
+    required: false
+    default: ""
+  output:
+    description: "Path the SARIF 2.1.0 log is written to."
+    required: false
+    default: "tool-sentry.sarif"
+  python-version:
+    description: "Python version used to run tool-sentry."
+    required: false
+    default: "3.12"
+
+outputs:
+  sarif-file:
+    description: "Path of the SARIF 2.1.0 log this run wrote."
+    value: ${{ steps.contract.outputs.sarif-file }}
+  exit-code:
+    description: "tool-sentry exit code: 0 clean, 1 changes reached the threshold, 2 bad input."
+    value: ${{ steps.contract.outputs.exit-code }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install tool-sentry
+      shell: bash
+      # Installed from the checked-out action itself, so there is no PyPI
+      # dependency and the action always runs the code it ships with.
+      run: python -m pip install --disable-pip-version-check "$GITHUB_ACTION_PATH"
+
+    - name: Check tool contract
+      id: contract
+      shell: bash
+      env:
+        TS_BASELINE: ${{ inputs.baseline }}
+        TS_CANDIDATE: ${{ inputs.candidate }}
+        TS_FAIL_ON: ${{ inputs.fail-on }}
+        TS_FORMAT: ${{ inputs.format }}
+        TS_POLICY: ${{ inputs.policy }}
+        TS_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -uo pipefail
+        set +e   # the exit code is the result, not a step failure
+
+        if [ -n "$TS_POLICY" ]; then
+          set -- check --baseline "$TS_BASELINE" --candidate "$TS_CANDIDATE" --policy "$TS_POLICY"
+        else
+          set -- diff "$TS_BASELINE" "$TS_CANDIDATE" --fail-on "$TS_FAIL_ON"
+        fi
+
+        mkdir -p "$(dirname "$TS_OUTPUT")"
+        tool-sentry "$@" --format sarif > "$TS_OUTPUT"
+        code=$?
+
+        if [ "$code" -eq 2 ]; then
+          echo "::error title=tool-sentry::tool-sentry could not read its input, see the log above"
+          exit 2
+        fi
+
+        if [ "$TS_FORMAT" = "sarif" ]; then
+          cat "$TS_OUTPUT"
+        else
+          tool-sentry "$@" --format "$TS_FORMAT"
+        fi
+
+        # One GitHub annotation per classified change, anchored to the candidate.
+        python -m tool_sentry.sarif "$TS_OUTPUT" --file "$TS_CANDIDATE"
+
+        {
+          echo "sarif-file=$TS_OUTPUT"
+          echo "exit-code=$code"
+        } >> "$GITHUB_OUTPUT"
+        exit $code

@@ -6,7 +6,10 @@ deterministic lock file with a SHA-256 contract hash. Two contracts can then
 be compared with :func:`classify`, which labels every change breaking,
 risky, or informational using fixed structural rules, and those changes can
 be judged against a local review policy with :func:`load_policy` and
-:func:`evaluate`.
+:func:`evaluate`. ``tool_sentry.sarif`` publishes the result as a SARIF
+2.1.0 log, which is what the bundled GitHub Action annotates a pull request
+with; it is imported from its own module rather than re-exported here so
+that ``python -m tool_sentry.sarif`` runs as a script without warnings.
 
 tool-sentry never executes a model or a tool, never calls provider APIs, and
 never stores secrets.
@@ -65,7 +68,7 @@ from .snapshot import (
     write_snapshot,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AdapterError",

@@ -34,6 +34,7 @@ from .policy import (
     evaluate,
     load_policy,
 )
+from .sarif import render_sarif
 from .snapshot import (
     LOCK_VERSION,
     build_approval,
@@ -43,6 +44,9 @@ from .snapshot import (
 )
 
 DEFAULT_OUT = "tools.lock.json"
+
+#: Output formats accepted by ``diff`` and ``check``.
+FORMAT_CHOICES = ("table", "json", "sarif")
 EXIT_OK = 0
 EXIT_CHANGES = 1
 EXIT_ERROR = 2
@@ -177,12 +181,26 @@ def render_report(
     return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=False)
 
 
+def render_log(
+    baseline: list[Tool], candidate: list[Tool], changes: list[Change]
+) -> str:
+    """Render the changes as a SARIF 2.1.0 log."""
+    return render_sarif(
+        changes,
+        tool_version=__version__,
+        baseline_hash=contract_hash(baseline),
+        candidate_hash=contract_hash(candidate),
+    )
+
+
 def _cmd_diff(args: argparse.Namespace) -> int:
     baseline = collect_tools(Path(args.baseline))
     candidate = collect_tools(Path(args.candidate))
     changes = classify(baseline, candidate)
     if args.json or args.format == "json":
         print(render_report(baseline, candidate, changes))
+    elif args.format == "sarif":
+        print(render_log(baseline, candidate, changes))
     else:
         print(render_table(changes))
     if args.fail_on != "never" and reaches(changes, args.fail_on):
@@ -219,6 +237,8 @@ def _cmd_check(args: argparse.Namespace) -> int:
     result = evaluate(policy, classify(baseline, candidate), candidate)
     if args.json or args.format == "json":
         print(render_check_report(baseline, candidate, result, policy))
+    elif args.format == "sarif":
+        print(render_log(baseline, candidate, result.changes))
     else:
         print(render_table(result.changes))
         if result.forbidden:
@@ -282,7 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diff.add_argument(
         "--format",
-        choices=("table", "json"),
+        choices=FORMAT_CHOICES,
         default="table",
         help="output format (default: table)",
     )
@@ -306,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--policy", required=True, help="policy file (YAML or JSON)")
     check.add_argument(
         "--format",
-        choices=("table", "json"),
+        choices=FORMAT_CHOICES,
         default="table",
         help="output format (default: table)",
     )

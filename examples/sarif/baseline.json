@@ -1,0 +1,79 @@
+{
+  "tools": [
+    {
+      "name": "search_documents",
+      "description": "Search the indexed document corpus. Returns ranked matches.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Full-text query string."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of matches to return.",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order for the returned matches.",
+            "enum": ["relevance", "recency", "title"]
+          }
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          },
+          "total": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a tracking ticket for a follow-up task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "One-line ticket summary."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "export_report",
+      "description": "Export a saved report to a file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "report_id": { "type": "string" },
+          "format": {
+            "type": "string",
+            "enum": ["csv", "json"]
+          }
+        },
+        "required": ["report_id"]
+      }
+    }
+  ]
+}
