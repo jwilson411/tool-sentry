@@ -1,4 +1,4 @@
-"""Fixture-driven loaders for OpenAI, Anthropic, and MCP tool documents.
+"""Fixture-driven loaders for OpenAI, Anthropic, MCP, and lock documents.
 
 These adapters read JSON that you already have on disk. tool-sentry does not
 depend on any provider SDK, opens no network connection, and never calls a
@@ -51,6 +51,22 @@ def _require_schema(item: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+#: Keys an output JSON Schema may be published under, in lookup order.
+OUTPUT_KEYS = ("outputSchema", "output_schema", "output")
+
+
+def _optional_schema(item: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any] | None:
+    """Return the first schema found under ``keys``, or ``None``."""
+    for key in keys:
+        value = item.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            raise AdapterError(f"tool field {key!r} must be a JSON Schema object")
+        return value
+    return None
+
+
 def _build(item: Any, schema_key: str, source: Source) -> Tool:
     if not isinstance(item, dict):
         raise AdapterError("each tool entry must be an object")
@@ -59,6 +75,7 @@ def _build(item: Any, schema_key: str, source: Source) -> Tool:
         description=_require_str(item, "description", required=False),
         parameters=_require_schema(item, schema_key),
         source=source,
+        output=_optional_schema(item, OUTPUT_KEYS),
     )
 
 
@@ -85,11 +102,27 @@ def load_mcp(data: Any) -> list[Tool]:
     return [_build(item, "inputSchema", "mcp") for item in _as_items(data)]
 
 
+def load_lock(data: Any) -> list[Tool]:
+    """Load a tool-sentry lock file (``version`` + ``hash`` + ``tools``)."""
+    return [_build(item, "parameters", "lock") for item in _as_items(data)]
+
+
 LOADERS = {
     "openai": load_openai,
     "anthropic": load_anthropic,
     "mcp": load_mcp,
+    "lock": load_lock,
 }
+
+
+def is_lock_document(data: Any) -> bool:
+    """Return True when ``data`` looks like a tool-sentry lock file."""
+    return (
+        isinstance(data, dict)
+        and "version" in data
+        and "hash" in data
+        and isinstance(data.get("tools"), list)
+    )
 
 
 def _detect_items(items: list[Any]) -> Source | None:
@@ -115,6 +148,8 @@ def detect_format(data: Any) -> Source:
 
     Raises :class:`AdapterError` if the document is not recognizable.
     """
+    if is_lock_document(data):
+        return "lock"
     try:
         items = _as_items(data)
     except AdapterError as exc:

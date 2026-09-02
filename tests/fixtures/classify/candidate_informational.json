@@ -1,0 +1,76 @@
+{
+  "tools": [
+    {
+      "name": "search_documents",
+      "description": "Search the indexed document corpus and rank the matches.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Full-text query string.",
+            "examples": ["quarterly report"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "order": {
+            "type": "string",
+            "enum": ["relevance", "recency", "title"]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of leading matches to skip."
+          }
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          },
+          "total": { "type": "integer" },
+          "elapsed_ms": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a tracking ticket for a follow-up task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "close_ticket",
+      "description": "Close a tracking ticket.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}
